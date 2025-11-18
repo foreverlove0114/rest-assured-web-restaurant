@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
+<suite name="Restaurant API Parallel Tests" parallel="methods" thread-count="3">
+    <test name="Parallel Cucumber Tests">
+        <classes>
+            <class name="com.restaurant.runners.ParallelTestRunner"/>
+        </classes>
+    </test>
+</suite>
