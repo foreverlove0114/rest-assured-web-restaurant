@@ -4,8 +4,6 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 
-import io.restassured.response.Response;
-
 public class CSRFTokenExtractor {
 
     public static String extractCSRFToken(String htmlContent) {

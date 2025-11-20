@@ -9,98 +9,109 @@ import java.util.Map;
 import static io.restassured.RestAssured.given;
 
 public class SessionManager {
-    // 1. 存储会话数据
     private Map<String, String> cookies = new HashMap<>();
     private String csrfToken;
     private boolean isLoggedIn = false;
 
-    // 2. 构造函数
     public SessionManager() {
-        // 初始化时可以做一些设置
         System.out.println("🆕 创建新的会话管理器");
     }
 
-    // 3. 核心方法：用户登录
-    public void login(String nickname, String password) {
-        System.out.println("🔐 开始登录用户: " + nickname);
+    public Response loginAndGetResponse(String nickname, String password) {
+        System.out.println("🔐 登录: " + nickname);
 
-        // 步骤1: 获取登录页面，提取CSRF token
-        System.out.println("📄 获取登录页面...");
-        Response loginPage = given()
-                .cookies(cookies)  // 带上现有cookies
-                .get(ConfigManager.getBaseUrl() + "/login");
+        try {
+            // 1. 获取登录页面
+            Response loginPage = given().cookies(cookies).get(ConfigManager.getBaseUrl() + "/login");
+            this.csrfToken = CSRFTokenExtractor.extractFromResponse(loginPage);
+            cookies.putAll(loginPage.getCookies());
 
-        // 提取CSRF token
-        this.csrfToken = CSRFTokenExtractor.extractFromResponse(loginPage);
-        System.out.println("🎫 提取到CSRF Token: " + (csrfToken != null ? "✓" : "✗"));
+            System.out.println("🎫 登录前CSRF: " + (csrfToken != null ? "✓" : "✗"));
 
-        // 步骤2: 执行登录
-        System.out.println("🚀 提交登录表单...");
-        Response loginResponse = given()
-                .cookies(cookies)                    // 保持cookies
-                .formParam("nickname", nickname)     // 表单参数：用户名
-                .formParam("password", password)     // 表单参数：密码
-                .formParam("csrf_token", csrfToken)  // 表单参数：CSRF token
-                .post(ConfigManager.getBaseUrl() + "/login");
+            // 2. 执行登录
+            Response loginResponse = given()
+                    .cookies(cookies)
+                    .formParam("nickname", nickname)
+                    .formParam("password", password)
+                    .formParam("csrf_token", csrfToken)
+                    .post(ConfigManager.getBaseUrl() + "/login");
 
-        // 步骤3: 保存会话状态
-        // 更新cookies（服务器返回的会话cookies）
-        Map<String, String> newCookies = loginResponse.getCookies();
-        cookies.putAll(newCookies);
+            // 3. 更新cookies
+            cookies.putAll(loginResponse.getCookies());
 
-        // 更新CSRF token（从重定向后的页面提取）
-        this.csrfToken = CSRFTokenExtractor.extractFromResponse(loginResponse);
+            // 4. 判断登录状态
+            String responseBody = loginResponse.getBody().asString();
+            if (loginResponse.getStatusCode() == 302 ||
+                    (loginResponse.getStatusCode() == 200 && responseBody.contains("Personal information"))) {
+                this.isLoggedIn = true;
+                System.out.println("✅ 登录成功");
+            } else {
+                this.isLoggedIn = false;
+                System.out.println("❌ 登录失败");
+            }
 
-        this.isLoggedIn = true;
-        System.out.println("✅ 登录成功！会话已建立");
+            return loginResponse;
+
+        } catch (Exception e) {
+            System.out.println("❌ 登录异常: " + e.getMessage());
+            this.isLoggedIn = false;
+            return null;
+        }
     }
 
-    // 4. 获取认证后的请求对象
+    // 原有的login方法保持不变
+    public void login(String nickname, String password) {
+        loginAndGetResponse(nickname, password);
+    }
+
     public RequestSpecification getAuthenticatedRequest() {
-        if (!isLoggedIn) {
-            System.out.println("⚠️  用户未登录，返回基础请求");
-            return given().cookies(cookies);
+        RequestSpecification request = given().cookies(cookies);
+
+        if (csrfToken != null) {
+            request = request.formParam("csrf_token", csrfToken);
         }
 
-        System.out.println("🎯 返回认证请求（包含CSRF token和cookies）");
-        return given()
-                .cookies(cookies)                    // 自动添加会话cookies
-                .formParam("csrf_token", csrfToken); // 自动添加CSRF token
+        System.out.println("🎯 返回认证请求 - 登录状态: " + isLoggedIn +
+                ", Cookies数量: " + cookies.size() +
+                ", CSRF Token: " + (csrfToken != null ? "✓" : "✗"));
+        return request;
     }
 
-    // 5. 获取未认证的请求对象（用于未登录测试）
     public RequestSpecification getUnauthenticatedRequest() {
-        return given(); // 空的请求，没有cookies和CSRF token
+        System.out.println("🎯 返回未认证请求");
+        return given();
     }
 
-    // 6. 登出方法
     public void logout() {
         System.out.println("🚪 执行登出...");
         if (isLoggedIn) {
-            given()
-                    .cookies(cookies)
-                    .get(ConfigManager.getBaseUrl() + "/logout");
+            given().cookies(cookies).get(ConfigManager.getBaseUrl() + "/logout");
         }
-
-        // 清理会话数据
         cookies.clear();
         csrfToken = null;
         isLoggedIn = false;
         System.out.println("🧹 会话数据已清理");
     }
 
-    // 7. 工具方法：检查登录状态
     public boolean isLoggedIn() {
         return isLoggedIn;
     }
 
-    // 8. 获取当前CSRF token（用于调试）
     public String getCsrfToken() {
         return csrfToken;
     }
 
-    // 9. 获取cookies数量（用于调试）
     public int getCookiesCount() {
         return cookies.size();
+    }
+
+    // 调试方法：打印当前会话状态
+    public void printSessionStatus() {
+        System.out.println("=== 当前会话状态 ===");
+        System.out.println("登录状态: " + isLoggedIn);
+        System.out.println("Cookies数量: " + cookies.size());
+        System.out.println("Cookies: " + cookies.keySet());
+        System.out.println("CSRF Token: " + (csrfToken != null ? "存在" : "不存在"));
+        System.out.println("==================");
     }
 }
